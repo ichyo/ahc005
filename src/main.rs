@@ -259,13 +259,38 @@ impl OptimizeState<'_> {
         F: Fn(i64) -> bool,
         R: Rng,
     {
-        let r: usize = rng.gen_range(0, self.road_to_square.len());
-        if self.road_to_square[r].is_none() {
+        let visits_num = self.road_visit_order.len();
+        let index: usize = rng.gen_range(0, visits_num);
+
+        let r = self.road_visit_order[index];
+        let old_square = self.road_to_square[r].unwrap();
+        let new_square = *self.problem.road_to_squares[r].choose(rng).unwrap();
+
+        if old_square == new_square {
             return None;
         }
-        let old_square = self.road_to_square[r];
-        self.road_to_square[r] = Some(*self.problem.road_to_squares[r].choose(rng).unwrap());
+
+        self.road_to_square[r] = Some(new_square);
         let new_total_time = self.total_time();
+
+        // let x = if index == 0 {
+        //     self.problem.start_sq
+        // } else {
+        //     self.road_to_square[self.road_visit_order[index - 1]].unwrap()
+        // };
+        // let y = if index + 1 == visits_num {
+        //     self.problem.start_sq
+        // } else {
+        //     self.road_to_square[self.road_visit_order[index + 1]].unwrap()
+        // };
+
+        // let mut new_total_time = old_total_time;
+        // new_total_time += self.problem.square_distances[new_square][x];
+        // new_total_time += self.problem.square_distances[new_square][y];
+        // new_total_time -= self.problem.square_distances[old_square][x];
+        // new_total_time -= self.problem.square_distances[old_square][y];
+        // assert!(new_total_time_tmp == new_total_time,);
+
         let diff = new_total_time as i64 - old_total_time as i64;
         if accept(diff) {
             Some(StateChange {
@@ -273,7 +298,7 @@ impl OptimizeState<'_> {
                 new_total_time,
             })
         } else {
-            self.road_to_square[r] = old_square;
+            self.road_to_square[r] = Some(old_square);
             None
         }
     }
@@ -291,16 +316,34 @@ impl OptimizeState<'_> {
         let visits_num = self.road_visit_order.len();
         let i: usize = rng.gen_range(0, visits_num - 1);
         let j: usize = rng.gen_range(i + 1, visits_num);
-        self.road_visit_order[i..j + 1].reverse();
-        let new_total_time = self.total_time();
+        let mut new_total_time = old_total_time;
+        let x = if i == 0 {
+            self.problem.start_sq
+        } else {
+            self.road_to_square[self.road_visit_order[i - 1]].unwrap()
+        };
+        let y = if j + 1 == visits_num {
+            self.problem.start_sq
+        } else {
+            self.road_to_square[self.road_visit_order[j + 1]].unwrap()
+        };
+        let p = self.road_to_square[self.road_visit_order[i]].unwrap();
+        let q = self.road_to_square[self.road_visit_order[j]].unwrap();
+        // x -> p, q -> y
+        // x -> q, p -> x
+        new_total_time += self.problem.square_distances[x][q];
+        new_total_time += self.problem.square_distances[y][p];
+        new_total_time -= self.problem.square_distances[x][p];
+        new_total_time -= self.problem.square_distances[y][q];
+
         let diff = new_total_time as i64 - old_total_time as i64;
         if accept(diff) {
+            self.road_visit_order[i..j + 1].reverse();
             Some(StateChange {
                 old_total_time,
                 new_total_time,
             })
         } else {
-            self.road_visit_order[i..j + 1].reverse();
             None
         }
     }
