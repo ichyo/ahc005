@@ -1,6 +1,7 @@
 #![allow(dead_code)]
+use judge::compute_score_detail;
 use rand::prelude::*;
-use std::{cmp::Reverse, collections::BinaryHeap};
+use std::{cmp::Reverse, collections::BinaryHeap, time::Duration};
 
 use text_scanner::scan;
 
@@ -31,157 +32,164 @@ pub struct Problem {
     // square_to_pos: Vec<Pos>,
     // pos_to_cost: Vec<Vec<Option<usize>>>,
 }
-
-pub fn read_problem() -> Problem {
-    let n: usize = scan();
-    let sr: usize = scan();
-    let sc: usize = scan();
-    let grid: Vec<Vec<char>> = (0..n).map(|_| scan::<String>().chars().collect()).collect();
-    let mut pos_to_square: Vec<Vec<Option<usize>>> = vec![vec![None; n]; n];
-    let mut pos_to_cost: Vec<Vec<Option<usize>>> = vec![vec![None; n]; n];
-    let mut square_to_pos = Vec::new();
-    let mut num_square = 0;
-    for r in 0..n {
-        for c in 0..n {
-            if grid[r][c] != '#' {
-                pos_to_square[r][c] = Some(num_square);
-                pos_to_cost[r][c] = Some((grid[r][c] as u8 - b'0') as usize);
-                square_to_pos.push(Pos::new(r, c));
-                num_square += 1;
+impl Problem {
+    pub fn from_params(n: usize, sr: usize, sc: usize, grid: Vec<Vec<char>>) -> Problem {
+        let mut pos_to_square: Vec<Vec<Option<usize>>> = vec![vec![None; n]; n];
+        let mut pos_to_cost: Vec<Vec<Option<usize>>> = vec![vec![None; n]; n];
+        let mut square_to_pos = Vec::new();
+        let mut num_square = 0;
+        for r in 0..n {
+            for c in 0..n {
+                if grid[r][c] != '#' {
+                    pos_to_square[r][c] = Some(num_square);
+                    pos_to_cost[r][c] = Some((grid[r][c] as u8 - b'0') as usize);
+                    square_to_pos.push(Pos::new(r, c));
+                    num_square += 1;
+                }
             }
         }
-    }
-    let mut num_road = 0;
-    let mut road_to_squares = Vec::new();
-    let mut square_to_roads = vec![Vec::new(); num_square];
-    let mut used = vec![vec![false; n]; n];
-    for r in 0..n {
-        for c in 0..n {
-            if !used[r][c] && pos_to_square[r][c].is_some() {
-                let mut squares = Vec::new();
-                let mut i = c;
-                while i < n && pos_to_square[r][i].is_some() {
-                    let sid = pos_to_square[r][i].unwrap();
-                    used[r][i] = true;
-                    squares.push(sid);
-                    i += 1;
-                }
-                if squares.len() > 1 {
-                    for &sid in &squares {
-                        square_to_roads[sid].push(num_road);
+        let mut num_road = 0;
+        let mut road_to_squares = Vec::new();
+        let mut square_to_roads = vec![Vec::new(); num_square];
+        let mut used = vec![vec![false; n]; n];
+        for r in 0..n {
+            for c in 0..n {
+                if !used[r][c] && pos_to_square[r][c].is_some() {
+                    let mut squares = Vec::new();
+                    let mut i = c;
+                    while i < n && pos_to_square[r][i].is_some() {
+                        let sid = pos_to_square[r][i].unwrap();
+                        used[r][i] = true;
+                        squares.push(sid);
+                        i += 1;
                     }
-                    road_to_squares.push(squares);
-                    num_road += 1;
-                }
-            }
-        }
-    }
-    let mut used = vec![vec![false; n]; n];
-    for r in 0..n {
-        for c in 0..n {
-            if !used[r][c] && pos_to_square[r][c].is_some() {
-                let mut squares = Vec::new();
-                let mut i = r;
-                while i < n && pos_to_square[i][c].is_some() {
-                    let sid = pos_to_square[i][c].unwrap();
-                    used[i][c] = true;
-                    squares.push(sid);
-                    i += 1;
-                }
-                if squares.len() > 1 {
-                    for &sid in &squares {
-                        square_to_roads[sid].push(num_road);
+                    if squares.len() > 1 {
+                        for &sid in &squares {
+                            square_to_roads[sid].push(num_road);
+                        }
+                        road_to_squares.push(squares);
+                        num_road += 1;
                     }
-                    road_to_squares.push(squares);
-                    num_road += 1;
                 }
             }
         }
-    }
-
-    let mut adj_squares = Vec::new();
-    for from_sq in 0..num_square {
-        let pos = square_to_pos[from_sq];
-        let mut new_pos = Vec::new();
-        if pos.r >= 1 {
-            new_pos.push((Pos::new(pos.r - 1, pos.c), 'U'));
-        }
-        if pos.r + 1 < n {
-            new_pos.push((Pos::new(pos.r + 1, pos.c), 'D'));
-        }
-        if pos.c >= 1 {
-            new_pos.push((Pos::new(pos.r, pos.c - 1), 'L'));
-        }
-        if pos.c + 1 < n {
-            new_pos.push((Pos::new(pos.r, pos.c + 1), 'R'));
-        }
-        let mut this_adj = Vec::new();
-        for (np, m) in new_pos {
-            if let Some(new_sq) = pos_to_square[np.r][np.c] {
-                this_adj.push((new_sq, m));
-            }
-        }
-        adj_squares.push(this_adj);
-    }
-
-    #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
-    struct State {
-        cost: usize,
-        square: usize,
-    }
-
-    let mut square_distances = Vec::new();
-    let mut move_operations = Vec::new();
-    for start_sq in 0..num_square {
-        let mut dist = vec![usize::max_value(); num_square];
-        let mut moves = vec![String::new(); num_square];
-        let mut queue = BinaryHeap::new();
-        dist[start_sq] = 0;
-        moves[start_sq] = String::new();
-        queue.push(Reverse(State {
-            cost: 0,
-            square: start_sq,
-        }));
-        while let Some(Reverse(State { cost, square })) = queue.pop() {
-            if cost > dist[square] {
-                continue;
-            }
-            for &(new_square, m) in &adj_squares[square] {
-                let pos = square_to_pos[new_square];
-                let new_cost = cost + pos_to_cost[pos.r][pos.c].unwrap();
-                if dist[new_square] > new_cost {
-                    dist[new_square] = new_cost;
-                    moves[new_square] = format!("{}{}", moves[square], m);
-                    queue.push(Reverse(State {
-                        cost: new_cost,
-                        square: new_square,
-                    }));
+        let mut used = vec![vec![false; n]; n];
+        for r in 0..n {
+            for c in 0..n {
+                if !used[r][c] && pos_to_square[r][c].is_some() {
+                    let mut squares = Vec::new();
+                    let mut i = r;
+                    while i < n && pos_to_square[i][c].is_some() {
+                        let sid = pos_to_square[i][c].unwrap();
+                        used[i][c] = true;
+                        squares.push(sid);
+                        i += 1;
+                    }
+                    if squares.len() > 1 {
+                        for &sid in &squares {
+                            square_to_roads[sid].push(num_road);
+                        }
+                        road_to_squares.push(squares);
+                        num_road += 1;
+                    }
                 }
             }
         }
-        square_distances.push(dist);
-        move_operations.push(moves);
+
+        let mut adj_squares = Vec::new();
+        for from_sq in 0..num_square {
+            let pos = square_to_pos[from_sq];
+            let mut new_pos = Vec::new();
+            if pos.r >= 1 {
+                new_pos.push((Pos::new(pos.r - 1, pos.c), 'U'));
+            }
+            if pos.r + 1 < n {
+                new_pos.push((Pos::new(pos.r + 1, pos.c), 'D'));
+            }
+            if pos.c >= 1 {
+                new_pos.push((Pos::new(pos.r, pos.c - 1), 'L'));
+            }
+            if pos.c + 1 < n {
+                new_pos.push((Pos::new(pos.r, pos.c + 1), 'R'));
+            }
+            let mut this_adj = Vec::new();
+            for (np, m) in new_pos {
+                if let Some(new_sq) = pos_to_square[np.r][np.c] {
+                    this_adj.push((new_sq, m));
+                }
+            }
+            adj_squares.push(this_adj);
+        }
+
+        #[derive(Copy, Clone, Eq, PartialEq, PartialOrd, Ord)]
+        struct State {
+            cost: usize,
+            square: usize,
+        }
+
+        let mut square_distances = Vec::new();
+        let mut move_operations = Vec::new();
+        for start_sq in 0..num_square {
+            let mut dist = vec![usize::max_value(); num_square];
+            let mut moves = vec![String::new(); num_square];
+            let mut queue = BinaryHeap::new();
+            dist[start_sq] = 0;
+            moves[start_sq] = String::new();
+            queue.push(Reverse(State {
+                cost: 0,
+                square: start_sq,
+            }));
+            while let Some(Reverse(State { cost, square })) = queue.pop() {
+                if cost > dist[square] {
+                    continue;
+                }
+                for &(new_square, m) in &adj_squares[square] {
+                    let pos = square_to_pos[new_square];
+                    let new_cost = cost + pos_to_cost[pos.r][pos.c].unwrap();
+                    if dist[new_square] > new_cost {
+                        dist[new_square] = new_cost;
+                        moves[new_square] = format!("{}{}", moves[square], m);
+                        queue.push(Reverse(State {
+                            cost: new_cost,
+                            square: new_square,
+                        }));
+                    }
+                }
+            }
+            square_distances.push(dist);
+            move_operations.push(moves);
+        }
+
+        let start_sq = pos_to_square[sr][sc].unwrap();
+        let is_initial_road = (0..num_road)
+            .map(|r| square_to_roads[start_sq].contains(&r))
+            .collect();
+
+        Problem {
+            n,
+            start_sq,
+            num_road,
+            num_square,
+            road_to_squares,
+            square_to_roads,
+            square_distances,
+            is_initial_road,
+            move_operations,
+            // square_to_pos,
+            // pos_to_square,
+            // pos_to_cost,
+            // adj_squares,
+        }
     }
-
-    let start_sq = pos_to_square[sr][sc].unwrap();
-    let is_initial_road = (0..num_road)
-        .map(|r| square_to_roads[start_sq].contains(&r))
-        .collect();
-
-    Problem {
-        n,
-        start_sq,
-        num_road,
-        num_square,
-        road_to_squares,
-        square_to_roads,
-        square_distances,
-        is_initial_road,
-        move_operations,
-        // square_to_pos,
-        // pos_to_square,
-        // pos_to_cost,
-        // adj_squares,
+    pub fn from_judge(input: &judge::Input) -> Problem {
+        Problem::from_params(input.N, input.s.0, input.s.1, input.c.clone())
+    }
+    pub fn from_stdin() -> Problem {
+        let n: usize = scan();
+        let sr: usize = scan();
+        let sc: usize = scan();
+        let grid: Vec<Vec<char>> = (0..n).map(|_| scan::<String>().chars().collect()).collect();
+        Problem::from_params(n, sr, sc, grid)
     }
 }
 
@@ -311,13 +319,10 @@ fn annealing<'a, R: Rng>(
     }
 }
 
-fn main() {
+fn solve<'a>(problem: &'a Problem, time_limit: Duration) -> OptimizeState<'a> {
     let start = std::time::Instant::now();
-    let time_limit = std::time::Duration::from_millis(2600);
 
     let kick_count = 5000;
-
-    let problem = read_problem();
 
     let mut rng = SmallRng::seed_from_u64(58);
     let mut state = OptimizeState::create_random(&problem, &mut rng);
@@ -327,8 +332,23 @@ fn main() {
 
     let mut iter_count = 0;
 
-    while start.elapsed() <= time_limit {
-        if let Some(changed) = state.try_2_opt(kick(iter_count, kick_count), &mut rng) {
+    loop {
+        let time_ratio = start.elapsed().as_secs_f64() / time_limit.as_secs_f64();
+        if time_ratio >= 1.0 {
+            break;
+        }
+        // if iter_count >= kick_count {
+        //     for _ in 0..3 {
+        //         state.try_2_opt(|_| true, &mut rng);
+        //     }
+        //     iter_count = 0;
+        // }
+        let start_temp = 10.0;
+        let end_temp = 1.0;
+        if let Some(changed) = state.try_2_opt(
+            annealing(time_ratio, start_temp, end_temp, &mut rng),
+            &mut rng,
+        ) {
             if changed.new_total_time < best_total_time {
                 best_state = state.clone();
                 best_total_time = changed.new_total_time;
@@ -341,7 +361,11 @@ fn main() {
             }
             iter_count = 0;
         }
-        if let Some(changed) = state.try_choose_square(climbing(), &mut rng) {
+
+        if let Some(changed) = state.try_choose_square(
+            annealing(time_ratio, start_temp, end_temp, &mut rng),
+            &mut rng,
+        ) {
             if changed.new_total_time < best_total_time {
                 best_state = state.clone();
                 best_total_time = changed.new_total_time;
@@ -356,10 +380,51 @@ fn main() {
         }
         iter_count += 1;
     }
+    best_state
+}
 
-    eprintln!("total_time: {}", best_total_time);
-    assert!(best_total_time == best_state.total_time());
+fn local_test() {
+    let mut scores = Vec::new();
+    let mut sum = 0;
+    for seed in 0..100 {
+        let start = std::time::Instant::now();
+        let time_limit = std::time::Duration::from_millis(1300);
+        let input = judge::gen(seed);
+        let problem = Problem::from_judge(&input);
+        let best_state = solve(&problem, time_limit - start.elapsed());
+        let score = compute_score_detail(&input, &best_state.moves());
+        assert!(score.1.is_empty());
+        sum += score.0;
+        scores.push(score.0);
+
+        eprintln!(
+            "seed {:3}: {} (avg: {})",
+            seed,
+            score.0,
+            sum / scores.len() as i64
+        );
+    }
+    let sum = scores.iter().sum::<i64>();
+    println!("{}", sum);
+}
+
+fn atcoder() {
+    let start = std::time::Instant::now();
+    let problem = Problem::from_stdin();
+    let time_limit = std::time::Duration::from_millis(2600);
+    let best_state = solve(&problem, time_limit - start.elapsed());
+
+    eprintln!("total_time: {}", best_state.total_time());
     println!("{}", best_state.moves());
 }
 
+fn main() {
+    if std::env::var("LOCAL_TEST").is_ok() {
+        local_test();
+    } else {
+        atcoder();
+    }
+}
+
+mod judge;
 mod text_scanner;
