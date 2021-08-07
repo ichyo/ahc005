@@ -249,7 +249,12 @@ impl OptimizeState<'_> {
         }
     }
 
-    fn try_choose_square<F, R>(&mut self, accept: F, rng: &mut R) -> Option<StateChange>
+    fn try_choose_square<F, R>(
+        &mut self,
+        accept: F,
+        rng: &mut R,
+        old_total_time: usize,
+    ) -> Option<StateChange>
     where
         F: Fn(i64) -> bool,
         R: Rng,
@@ -258,7 +263,6 @@ impl OptimizeState<'_> {
         if self.road_to_square[r].is_none() {
             return None;
         }
-        let old_total_time = self.total_time();
         let old_square = self.road_to_square[r];
         self.road_to_square[r] = Some(*self.problem.road_to_squares[r].choose(rng).unwrap());
         let new_total_time = self.total_time();
@@ -274,12 +278,16 @@ impl OptimizeState<'_> {
         }
     }
 
-    fn try_2_opt<F, R>(&mut self, accept: F, rng: &mut R) -> Option<StateChange>
+    fn try_2_opt<F, R>(
+        &mut self,
+        accept: F,
+        rng: &mut R,
+        old_total_time: usize,
+    ) -> Option<StateChange>
     where
         F: Fn(i64) -> bool,
         R: Rng,
     {
-        let old_total_time = self.total_time();
         let visits_num = self.road_visit_order.len();
         let i: usize = rng.gen_range(0, visits_num - 1);
         let j: usize = rng.gen_range(i + 1, visits_num);
@@ -326,6 +334,7 @@ fn solve<'a>(problem: &'a Problem, time_limit: Duration) -> OptimizeState<'a> {
 
     let mut rng = SmallRng::seed_from_u64(58);
     let mut state = OptimizeState::create_random(&problem, &mut rng);
+    let mut old_total_time = state.total_time();
 
     let mut best_state = state.clone();
     let mut best_total_time = best_state.total_time();
@@ -348,6 +357,7 @@ fn solve<'a>(problem: &'a Problem, time_limit: Duration) -> OptimizeState<'a> {
         if let Some(changed) = state.try_2_opt(
             annealing(time_ratio, start_temp, end_temp, &mut rng),
             &mut rng,
+            old_total_time,
         ) {
             if changed.new_total_time < best_total_time {
                 best_state = state.clone();
@@ -360,11 +370,13 @@ fn solve<'a>(problem: &'a Problem, time_limit: Duration) -> OptimizeState<'a> {
                 // );
             }
             iter_count = 0;
+            old_total_time = changed.new_total_time;
         }
 
         if let Some(changed) = state.try_choose_square(
             annealing(time_ratio, start_temp, end_temp, &mut rng),
             &mut rng,
+            old_total_time,
         ) {
             if changed.new_total_time < best_total_time {
                 best_state = state.clone();
@@ -377,6 +389,7 @@ fn solve<'a>(problem: &'a Problem, time_limit: Duration) -> OptimizeState<'a> {
                 // );
             }
             iter_count = 0;
+            old_total_time = changed.new_total_time;
         }
         iter_count += 1;
     }
