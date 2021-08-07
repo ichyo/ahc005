@@ -96,6 +96,15 @@ impl Problem {
             }
         }
 
+        let road_to_squares = road_to_squares
+            .into_iter()
+            .map(|v| {
+                v.into_iter()
+                    .filter(|&s| square_to_roads[s].len() > 1)
+                    .collect()
+            })
+            .collect();
+
         let mut adj_squares = Vec::new();
         for from_sq in 0..num_square {
             let pos = square_to_pos[from_sq];
